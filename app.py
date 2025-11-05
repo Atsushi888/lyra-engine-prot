@@ -1,13 +1,16 @@
 # app.py — Lyra Engine / Floria Chat (Streamlit Edition, wide & auto-clear)
 
-import os, json, requests, html, time, streamlit as st
-from persona_floria_ja import get_default_persona  # ★ 追加：人格モジュール
+import os, json, html, time, streamlit as st
+from persona_floria_ja import get_default_persona
+from llm_router import call_with_fallback
+
 
 # ================== 定数（人格から取得） ==================
 persona = get_default_persona()
-SYSTEM_PROMPT = persona.system_prompt          # 以前はベタ書きだった部分
-STARTER_HINT = persona.starter_hint            # 以前の STARTER_HINT
-PARTNER_NAME = persona.name                    # 「フローリア」という表示名
+SYSTEM_PROMPT = persona.system_prompt
+STARTER_HINT = persona.starter_hint
+PARTNER_NAME = persona.name
+
 MAX_LOG = 500
 DISPLAY_LIMIT = 20000  # 20K 文字表示上限（ログ保存はフル）
 
@@ -35,13 +38,13 @@ DEFAULTS = {
     "_pending_text": "",
     "_clear_input": False,
     "_do_reset": False,
-    "_ask_reset": False,      # ← 確認ダイアログ表示フラグ
+    "_ask_reset": False,
 }
 for k, v in DEFAULTS.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
-# --- フラグ処理は UI を描画する前に行う ---
+# --- フラグ処理（UI描画前） ---
 if st.session_state.get("_clear_input"):
     st.session_state["_clear_input"] = False
     st.session_state["user_input"] = ""
@@ -60,14 +63,19 @@ if "messages" not in st.session_state:
     st.session_state["messages"] = [{"role": "system", "content": SYSTEM_PROMPT}]
 
 # ================== シークレット ==================
-API  = st.secrets.get("LLAMA_API_KEY", os.getenv("LLAMA_API_KEY", ""))
-BASE = st.secrets.get("LLAMA_BASE_URL", os.getenv("LLAMA_BASE_URL", "https://openrouter.ai/api/v1")).rstrip("/")
-MODEL= st.secrets.get("LLAMA_MODEL",  os.getenv("LLAMA_MODEL",  "meta-llama/llama-3.1-70b-instruct"))
-if not BASE.endswith("/api/v1"):
-    BASE = BASE + ("/v1" if BASE.endswith("/api") else "/api/v1")
-if not API:
-    st.error("LLAMA_API_KEY が未設定です。Streamlit → Settings → Secrets で設定してください。")
+# GPT-5 用（OpenAI）
+OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", ""))
+# Hermes 用（OpenRouter）
+OPENROUTER_API_KEY = st.secrets.get("OPENROUTER_API_KEY", os.getenv("OPENROUTER_API_KEY", ""))
+
+if not OPENAI_API_KEY:
+    st.error("OPENAI_API_KEY が未設定です。Streamlit → Settings → Secrets で設定してください。")
     st.stop()
+
+# llm_router が os.getenv で読むので、ここで環境変数に流しておく
+os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
+if OPENROUTER_API_KEY:
+    os.environ["OPENROUTER_API_KEY"] = OPENROUTER_API_KEY
 
 # ================== パラメータUI ==================
 st.title("❄️ Floria Chat — Streamlit Edition")
@@ -86,53 +94,26 @@ with st.expander("接続設定", expanded=False):
     r1, r2 = st.columns(2)
     auto_continue = r1.checkbox("長文を自動で継ぎ足す", True)
     max_cont      = r2.slider("最大継ぎ足し回数", 1, 6, 3)
+    # ↑ auto_continue/max_cont は現状まだ未使用。将来 GPT-5 版継ぎ足しを書くときに使う。
 
 st.markdown(
     f"<style>.chat-bubble {{ max-width: min(90vw, {wrap_width}ch); }}</style>",
     unsafe_allow_html=True
 )
 
+# 接続テストは GPT-5＋Hermes ルートを使う簡易版にする
 with st.expander("接続テスト（任意）", expanded=False):
     if st.button("モデルへテストリクエスト"):
-        headers = {
-            "Authorization": f"Bearer {API}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "HTTP-Referer": "https://streamlit.io",
-            "X-Title": "Floria-Streamlit/2025-11-02",
-        }
-        payload = {
-            "model": MODEL,
-            "messages": [
-                {"role": "system", "content": "ping"},
-                {"role": "user", "content": "pong?"}
-            ],
-            "max_tokens": 8,
-            "temperature": 0.0,
-        }
+        test_msgs = [
+            {"role": "system", "content": "ping"},
+            {"role": "user", "content": "pong?"},
+        ]
         try:
-            r = requests.post(f"{BASE}/chat/completions", headers=headers, json=payload, timeout=(10, 30))
-            st.code(f"status={r.status_code}\nbody={r.text[:500]}", language="text")
+            with st.spinner("テスト中…"):
+                reply, meta = call_with_fallback(test_msgs, temperature=0.0, max_tokens=16)
+            st.code(f"route={meta.get('route')}\nreply={reply}", language="text")
         except Exception as e:
             st.error(f"接続エラー: {e}")
-
-# ================== 軽いリトライ付きPOST ==================
-def _post_with_retry(url, headers, payload, timeout):
-    for _ in range(2):
-        try:
-            resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
-        except requests.exceptions.RequestException as e:
-            class R:
-                status_code = 599
-                text = str(e)
-                def json(self): return None
-            return R()
-        if resp.status_code in (429, 502, 503):
-            delay = float(resp.headers.get("Retry-After", "0") or 0)
-            time.sleep(min(max(delay, 0.5), 3.0))
-            continue
-        return resp
-    return resp
 
 # ================== 送信関数 ==================
 def floria_say(user_text: str):
@@ -144,121 +125,32 @@ def floria_say(user_text: str):
     # ユーザー発言を履歴に追加
     st.session_state.messages.append({"role": "user", "content": user_text})
 
-    # 直近だけ送る（失敗時は薄める）
+    # 送るコンテキスト（system + 直近 max_slice 件）
     base = st.session_state.messages
     max_slice = 60
-    min_slice = 20
     convo = [base[0]] + base[-max_slice:]
 
-    headers = {
-        "Authorization": f"Bearer {API}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "HTTP-Referer": "https://streamlit.io",
-        "X-Title": "Floria-Streamlit/2025-11-02",
+    # GPT-5 → Hermes フォールバックで1回だけ呼ぶ
+    with st.spinner(f"{PARTNER_NAME}が考えています…"):
+        reply, meta = call_with_fallback(
+            convo,
+            temperature=float(temperature),
+            max_tokens=int(max_tokens),
+        )
+
+    # どっちのルートを使ったかだけメモ
+    st.session_state["_last_call_meta"] = {
+        "route": meta.get("route"),
+        "model_main": "gpt-5-turbo",
+        "model_fallback": "nousresearch/hermes-3-llama-3-llama-3-70b",
     }
 
-    def _one_call(msgs):
-        payload = {
-            "model": MODEL,
-            "messages": msgs,
-            "temperature": float(temperature),
-            "max_tokens": int(max_tokens),
-        }
-        return _post_with_retry(f"{BASE}/chat/completions", headers, payload, timeout=(10, 60))
-
-    def _call_with_shrink(msgs):
-        nonlocal max_slice
-        while True:
-            resp = _one_call(msgs)
-            if getattr(resp, "status_code", 599) == 200:
-                return resp, msgs
-
-            body_text = ""
-            try:
-                _j = resp.json()
-                body_text = json.dumps(_j, ensure_ascii=False)[:800]
-            except Exception:
-                body_text = getattr(resp, "text", "")[:800]
-
-            is_ctx_err = (
-                getattr(resp, "status_code", 0) in (400, 413)
-                or ("context" in body_text.lower() and "length" in body_text.lower())
-            )
-            if not is_ctx_err or max_slice <= min_slice:
-                return resp, msgs
-
-            max_slice = max(min_slice, max_slice // 2)
-            msgs = [base[0]] + base[-max_slice:]
-
-    parts = []
-    reason = None
-
-    def _need_more(reason, chunk: str):
-        if reason not in ("length", "max_tokens"):
-            return False
-        return not chunk.rstrip().endswith(("。","！","？",".","!","?","」","『","』","”","\"", "…"))
-
-    with st.spinner("フローリアが考えています…"):
-        for _ in range(1 + (max_cont if auto_continue else 0)):
-            resp, used_convo = _call_with_shrink(convo)
-
-            try:
-                data = resp.json()
-            except Exception:
-                data = None
-
-            if getattr(resp, "status_code", 599) != 200:
-                code = getattr(resp, "status_code", 599)
-                if code in (401, 403):
-                    parts = ["（認証に失敗しました。LLAMA_API_KEY を確認してください）"]
-                else:
-                    err = ""
-                    if isinstance(data, dict):
-                        err = data.get("error", {}).get("message") or data.get("message") or ""
-                    if not err:
-                        err = getattr(resp, "text", "")[:500]
-                    parts = [f"（ごめんなさい、冷たい霧で声が届きません… {code}: {err}）"]
-                break
-
-            chunk = ""
-            reason = None
-            if isinstance(data, dict) and data.get("choices"):
-                ch = data["choices"][0]
-                chunk = (ch.get("message", {}) or {}).get("content", "") or ""
-                reason = ch.get("finish_reason") or ((ch.get("finish_details") or {}).get("type"))
-
-            if isinstance(data, dict):
-                st.session_state["_last_call_meta"] = {
-                    "status": getattr(resp, "status_code", None),
-                    "finish": reason,
-                    "usage": data.get("usage", {}),
-                    "len_messages_sent": len(used_convo),
-                    "model": MODEL,
-                }
-
-            if not chunk:
-                parts.append(f"（返事の形が凍ってしまったみたい…：{str(data)[:200]}）")
-                break
-
-            parts.append(chunk)
-
-            if not (auto_continue and _need_more(reason, chunk)):
-                break
-
-            convo = used_convo + [
-                {"role": "assistant", "content": chunk},
-                {"role": "user", "content": "続きのみを、重複や言い直しなしで出力してください。"},
-            ]
-
-    a = "".join(parts).strip()
-    if not a:
-        a = "（返答の生成に失敗しました。少し内容を短くしてもう一度お試しください）"
-    st.session_state.messages.append({"role": "assistant", "content": a})
+    # 返答を履歴に積む
+    st.session_state.messages.append({"role": "assistant", "content": reply})
 
 # ================== 会話表示 ==================
 st.subheader("会話")
-dialog = [m for m in st.session_state.messages if m["role"] in ("user", "assistant")]
+dialog = [m for m in st.session_state["messages"] if m["role"] in ("user", "assistant")]
 
 for m in dialog:
     role = m["role"]
@@ -267,9 +159,11 @@ for m in dialog:
     txt   = html.escape(shown)
 
     if role == "user":
-        st.markdown(f"<div class='chat-bubble user'><b>あなた：</b><br>{txt}</div>", unsafe_allow_html=True)
+        st.markdown(
+            f"<div class='chat-bubble user'><b>あなた：</b><br>{txt}</div>",
+            unsafe_allow_html=True
+        )
     else:
-        # ★ 「フローリア」をベタ書きせず、人格からの名前を使う
         st.markdown(
             f"<div class='chat-bubble assistant'><b>{PARTNER_NAME}：</b><br>{txt}</div>",
             unsafe_allow_html=True
@@ -333,7 +227,7 @@ if st.session_state.get("_ask_reset", False):
             st.session_state["_ask_reset"] = False
 else:
     if c_new.button("新しい会話（履歴が消えます）", use_container_width=True,
-                disabled=(st.session_state["_busy"] or st.session_state["_ask_reset"])):
+                    disabled=(st.session_state["_busy"] or st.session_state["_ask_reset"])):
         st.session_state["_ask_reset"] = True
         st.rerun()
 
@@ -341,9 +235,9 @@ else:
 if c_show.button("最近10件を表示", use_container_width=True,
                  disabled=(st.session_state["_busy"] or st.session_state["_ask_reset"])):
     st.info("最近10件の会話を下に表示します。")
-    recent = [m for m in st.session_state.messages if m["role"] in ("user", "assistant")][-10:]
+    recent = [m for m in st.session_state["messages"] if m["role"] in ("user", "assistant")][-10:]
     for m in recent:
-        role = "あなた" if m["role"] == "user" else PARTNER_NAME  # ★ ここも人格依存に
+        role = "あなた" if m["role"] == "user" else PARTNER_NAME
         st.write(f"**{role}**：{m['content'].strip()}")
 
 # ================== 保存・読込 ==================
@@ -351,12 +245,13 @@ st.markdown("---")
 st.subheader("会話ログの保存")
 st.download_button(
     "JSON をダウンロード",
-    json.dumps(st.session_state.messages, ensure_ascii=False, indent=2),
+    json.dumps(st.session_state["messages"], ensure_ascii=False, indent=2),
     file_name="floria_chat_log.json",
     mime="application/json",
     use_container_width=True
 )
 
+st.subheader("会話ログの読み込み")
 up = st.file_uploader("保存した JSON を選択", type=["json"])
 col_l, col_m, col_r = st.columns(3)
 load_mode = col_l.radio("読込モード", ["置き換え", "末尾に追記"], horizontal=True)
