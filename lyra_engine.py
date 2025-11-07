@@ -93,21 +93,21 @@ class LyraEngine:
         st.write("🛬 PreflightChecker.render() 呼び出し後")
 
         # デバッグパネル（サイドバー）
-        with st.sidebar:
-            self.debug_panel.render()
+        # with st.sidebar:
+        #     self.debug_panel.render()
 
         # 会話ログ
-        messages: List[Dict[str, str]] = self.state.get("messages", [])
-        self.chat_log.render(messages)
+        # messages: List[Dict[str, str]] = self.state.get("messages", [])
+        # self.chat_log.render(messages)
         
         # 入力欄
-        user_text = self.player_input.render()
-        if user_text:
-            st.session_state["messages"].append({"role": "user", "content": user_text})
-            st.session_state["messages"].append(
-                {"role": "assistant", "content": "（まだ応答生成ロジック未実装）"}
-            )
-            st.experimental_rerun()
+        # user_text = self.player_input.render()
+        # if user_text:
+        #     st.session_state["messages"].append({"role": "user", "content": user_text})
+        #     st.session_state["messages"].append(
+        #         {"role": "assistant", "content": "（まだ応答生成ロジック未実装）"}
+        #     )
+        #     st.experimental_rerun()
 
 
 # ★★★ エントリーポイント ★★★
