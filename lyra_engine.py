@@ -117,19 +117,25 @@ class LyraEngine:
         # デバッグパネル（サイドバー）
         llm_meta = self.state.get("llm_meta")
         with st.sidebar:
-            # DebugPanel 側が meta: Optional[Dict[str, Any]] を受け取る前提
             self.debug_panel.render(llm_meta)
 
-        # 先に会話ログを表示
-        messages: List[Dict[str, str]] = self.state.get("messages", [])
-        self.chat_log.render(messages)
+        # 👇 会話ログ用のプレースホルダを先に置く（画面上ではここにログが出る）
+        log_placeholder = st.empty()
 
-        # 入力欄 → LyraCore に1ターン処理を委譲
+        # 👇 その下に「あなたの発言」入力欄を描画
         user_text = self.player_input.render()
-        if user_text:
-            self.state["messages"], _ = self.core.proceed_turn(user_text, self.state)
-            # 入力欄クリアしたいなら、PlayerInput 側で key をリセットする実装にしておく
 
+        # 入力があったら 1 ターン分の会話処理を LyraCore に委譲
+        if user_text:
+            self.state["messages"], _ = self.core.proceed_turn(
+                user_text, self.state
+            )
+
+        # 👇 最後に、更新された messages をプレースホルダの中に描画
+        messages: List[Dict[str, str]] = self.state.get("messages", [])
+        with log_placeholder.container():
+            self.chat_log.render(messages)
+    
 # ★★★ エントリーポイント ★★★
 if __name__ == "__main__":
     engine = LyraEngine()
