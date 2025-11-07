@@ -103,7 +103,6 @@ class LyraEngine:
             st.session_state["messages"].append(
                 {"role": "assistant", "content": "（まだ応答生成ロジック未実装）"}
             )
-
         # そのうえで、最後に会話ログを描画
         messages: List[Dict[str, str]] = self.state.get("messages", [])
         self.chat_log.render(messages)
