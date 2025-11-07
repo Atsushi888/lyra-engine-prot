@@ -1,8 +1,6 @@
 # components/player_input.py
 import streamlit as st
 
-
-# セッションキーとフォームキーは固定文字列にしてしまう
 TEXT_KEY = "user_input_box"
 FORM_KEY = "user_input_form"
 
@@ -17,26 +15,30 @@ class PlayerInput:
         それ以外は空文字を返す。
         """
 
-        # セッションにキーがなければ初期化
-        if TEXT_KEY not in st.session_state:
-            st.session_state[TEXT_KEY] = ""
+        # ここでは session_state に触らない
+        # （ストリームリット側が自動で作るのに任せる）
 
-        # フォームでまとめて描画
         with st.form(key=FORM_KEY):
             user_input = st.text_area(
                 "あなたの発言を入力:",
                 key=TEXT_KEY,
-                height=160,  # 高さはお好みで調整OK
+                height=160,
             )
             submitted = st.form_submit_button("送信")
 
-        # ボタンが押されたときだけ判定
-        if submitted:
-            text = (user_input or "").strip()
-            if text:
-                # 入力欄をクリア
-                st.session_state[TEXT_KEY] = ""
-                return text
+        if not submitted:
+            return ""
 
-        # 送信されてない / 空文字のとき
-        return ""
+        text = (user_input or "").strip()
+        if not text:
+            return ""
+
+        # 入力欄をクリアしたいが、ここでの書き込みが環境によっては
+        # StreamlitAPIException を出すことがあるので保険をかける
+        try:
+            st.session_state[TEXT_KEY] = ""
+        except Exception:
+            # 失敗したら「クリアされない」だけでよしとする
+            pass
+
+        return text
