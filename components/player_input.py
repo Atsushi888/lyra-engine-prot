@@ -9,9 +9,9 @@ class PlayerInput:
     TEXT_KEY = "player_input_text"
 
     def __init__(self) -> None:
-        # 最初の1回だけ空文字で初期化
-        if self.TEXT_KEY not in st.session_state:
-            st.session_state[self.TEXT_KEY] = ""
+        # ここでは TEXT_KEY をいじらない。
+        # （Streamlit が自分で初期化するので任せておく）
+        pass
 
     def render(self) -> str:
         """
@@ -22,23 +22,25 @@ class PlayerInput:
 
         st.write("あなたの発言を入力:")
 
-        # 🚫 value= は渡さない。key だけで状態を管理させる
+        # テキストエリア本体（state 管理は Streamlit に任せる）
         user_text: str = st.text_area(
             label="",
             key=self.TEXT_KEY,
             height=160,
         )
 
+        # 送信ボタン
         send = st.button("送信", type="primary")
 
         if send:
-            text_to_send = user_text.strip()
+            text_to_send = (user_text or "").strip()
             if not text_to_send:
-                # 空文字だけなら何もしない
+                # 空なら何もしない
                 return ""
 
-            # ✅ クリアは「送信が押された瞬間」だけ
-            st.session_state[self.TEXT_KEY] = ""
+            # ★ ここでは TEXT_KEY を触らない ★
+            #   （触るとまた同じエラーになるため）
+            #   入力欄クリアは、あとで安全なやり方に差し替える。
 
             return text_to_send
 
