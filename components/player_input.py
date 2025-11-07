@@ -1,40 +1,44 @@
 # components/player_input.py
 import streamlit as st
 
+TURN_KEY = "input_turn"   # 何ターン目の入力かを覚えておくカウンタ
+
 
 class PlayerInput:
     """ユーザーの入力欄 + 送信ボタンを担当"""
 
-    def __init__(
-        self,
-        key_input: str = "user_input_box",
-        key_button: str = "send_button",
-    ) -> None:
-        self.key_input = key_input
-        self.key_button = key_button
+    def __init__(self, base_key: str = "user_input") -> None:
+        self.base_key = base_key  # 実際のキーは base_key + "_0", "_1"... みたいになる
 
     def render(self) -> str:
         """入力欄を表示して、送信されたテキストを返す（なければ空文字）"""
 
-        # テキストエリア（高さはお好みで調整してね）
+        # ターン番号の初期化
+        if TURN_KEY not in st.session_state:
+            st.session_state[TURN_KEY] = 0
+
+        turn = st.session_state[TURN_KEY]
+
+        # このターン専用のキーを作る
+        text_key = f"{self.base_key}_{turn}"
+        button_key = f"send_button_{turn}"
+
+        # 入力欄
         user_input = st.text_area(
             "あなたの発言を入力:",
-            key=self.key_input,
+            key=text_key,
             height=160,
         )
 
         # 送信ボタン
-        send_clicked = st.button("送信", key=self.key_button)
+        send_clicked = st.button("送信", key=button_key)
 
         if send_clicked:
             text = user_input.strip()
-
-            # ★ここがポイント：送信後に入力欄をクリア
-            st.session_state[self.key_input] = ""
-
-            # 空じゃなければ返す（LyraEngine 側で LLM 呼び出し）
             if text:
+                # 次のターン用にカウンタを進める
+                st.session_state[TURN_KEY] = turn + 1
                 return text
 
-        # 送信されていない / 空文字のときは何も返さない
+        # 送信されていない / 空文字のとき
         return ""
