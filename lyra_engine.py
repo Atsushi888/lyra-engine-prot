@@ -1,4 +1,4 @@
-# lyra_engine.py
+f# lyra_engine.py
 import os
 from typing import Any, Dict, List
 
@@ -138,10 +138,6 @@ class LyraEngine:
             # セッション更新（デバッグ用メタ情報も）
             self.state["messages"] = updated_messages
             self.state["llm_meta"] = meta
-
-            # 入力欄は PlayerInput 内でクリア済みだが、
-            # 念のため再描画して新しいログを即反映
-            st.experimental_rerun()# ★★★ エントリーポイント ★★★
 
 if __name__ == "__main__":
     engine = LyraEngine()
