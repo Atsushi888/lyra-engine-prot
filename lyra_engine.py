@@ -1,13 +1,15 @@
-# lyra_engine.py
+# lyra_engine.py — Lyra Engine main entrypoint
+
 import os
 from typing import Any, Dict, List
 
 import streamlit as st
 
-from personas import get_persona
+from personas.persona_floria_ja import get_persona
 from components import PreflightChecker, DebugPanel, ChatLog, PlayerInput
 from conversation_engine import LLMConversation
 from lyra_core import LyraCore
+
 
 # ページ全体の基本設定
 st.set_page_config(page_title="Lyra Engine – フローリア", layout="wide")
@@ -40,11 +42,12 @@ class LyraEngine:
     DISPLAY_LIMIT = 20000
 
     def __init__(self):
-        # ペルソナの取得（フローリア）
-        persona = get_persona("floria_ja")
+        # ペルソナの取得（現時点ではフローリア固定）
+        persona = get_persona()
         self.system_prompt = persona.system_prompt
         self.starter_hint = persona.starter_hint
         self.partner_name = persona.name
+        self.style_hint = persona.style_hint  # ← ★ 新規追加
 
         # API キーの取得
         self.openai_key = st.secrets.get(
@@ -68,11 +71,12 @@ class LyraEngine:
         if self.openrouter_key:
             os.environ["OPENROUTER_API_KEY"] = self.openrouter_key
 
-        # LLM 会話エンジン（中で llm_router を呼ぶ）
+        # ===== LLM 会話エンジン（中で llm_router を呼ぶ） =====
         self.conversation = LLMConversation(
             system_prompt=self.system_prompt,
             temperature=0.7,
             max_tokens=800,
+            style_hint=self.style_hint,  # ← ★ personaのstyle_hintを反映
         )
 
         # コア（1ターン会話制御）
@@ -87,9 +91,8 @@ class LyraEngine:
         # セッション状態の初期化
         self._init_session_state()
 
-    # セッション初期化
+    # ===== セッション初期化 =====
     def _init_session_state(self) -> None:
-        # 会話メッセージ
         if "messages" not in st.session_state:
             st.session_state["messages"] = []
             if self.starter_hint:
@@ -97,7 +100,6 @@ class LyraEngine:
                     {"role": "assistant", "content": self.starter_hint}
                 )
 
-        # LLM メタ情報（DebugPanel 用）
         if "llm_meta" not in st.session_state:
             st.session_state["llm_meta"] = None
 
@@ -105,42 +107,44 @@ class LyraEngine:
     def state(self):
         return st.session_state
 
+    # ===== メインレンダリング =====
     def render(self) -> None:
-        # ここまで来ているかの確認
         st.write("✅ Lyra Engine 起動テスト：render() まで来てます。")
-    
+
         # Preflight（キー診断）
         st.write("🛫 PreflightChecker.render() 呼び出し前")
         self.preflight.render()
         st.write("🛬 PreflightChecker.render() 呼び出し後")
-    
+
         # デバッグパネル（サイドバー）
         llm_meta = self.state.get("llm_meta")
         with st.sidebar:
             self.debug_panel.render(llm_meta)
-    
-        # ① まず現在の会話ログを描画（この時点では前回までの状態）
+
+        # ① 現在の会話ログを表示
         messages: List[Dict[str, str]] = self.state.get("messages", [])
         self.chat_log.render(messages)
-    
-        # ② 入力欄（下）
+
+        # ② プレイヤー入力欄
         user_text = self.player_input.render()
-    
-        # ③ 入力があったら LLM に投げる
+
+        # ③ 入力があれば LLM に投げて結果更新
         if user_text:
             with st.spinner("フローリアが返事を考えています…"):
                 updated_messages, meta = self.core.proceed_turn(
                     user_text,
                     self.state,
                 )
-    
+
             # セッション更新
             self.state["messages"] = updated_messages
             self.state["llm_meta"] = meta
-    
-            # ④ ここでページを「丸ごと」描き直す
+
+            # 再描画
             st.rerun()
-        
+
+
+# ===== エントリーポイント =====
 if __name__ == "__main__":
     engine = LyraEngine()
     engine.render()
