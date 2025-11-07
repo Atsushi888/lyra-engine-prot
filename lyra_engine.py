@@ -2,7 +2,7 @@
 import os
 import json
 import time
-from typing import Any, Dict, Listf
+from typing import Any, Dict, List
 
 import streamlit as st
 
