@@ -62,7 +62,7 @@ class LyraEngine:
 
         # UI コンポーネント生成
         # self.preflight = PreflightChecker(self.openai_key, self.openrouter_key)
-        self.debug_panel = DebugPanel()
+        # self.debug_panel = DebugPanel()
         self.chat_log = ChatLog(self.partner_name, self.DISPLAY_LIMIT)
         # self.player_input = PlayerInput()   # ← ここ追加
 
