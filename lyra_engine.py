@@ -64,7 +64,7 @@ class LyraEngine:
         self.preflight = PreflightChecker(self.openai_key, self.openrouter_key)
         self.debug_panel = DebugPanel()
         self.chat_log = ChatLog(self.partner_name, self.DISPLAY_LIMIT)
-        self.player_input = PlayerInput()   # ← ここ追加
+        # self.player_input = PlayerInput()   # ← ここ追加
 
         # ★ セッション状態の初期化
         self._init_session_state()
