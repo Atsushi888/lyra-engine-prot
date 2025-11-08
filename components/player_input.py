@@ -5,8 +5,10 @@ import streamlit as st
 
 
 class PlayerInput:
+    # 入力欄用のセッションキー
+    KEY = "player_input_text"
+
     def __init__(self) -> None:
-        # ここでは何もしない
         pass
 
     def render(self) -> str:
@@ -15,15 +17,10 @@ class PlayerInput:
         送信されたときだけテキストを返す。
         送信されていなければ "" を返す。
         """
-
-        st.write("あなたの発言を入力:")
-
-        # ★ key を付けない＆ value="" にしておく
-        #    → rerun のたびに毎回まっさらな入力欄になる
         user_text: str = st.text_area(
-            label="",
+            "あなたの発言を入力：",   # ← ここにラベルを書いてしまう
+            key=self.KEY,
             height=160,
-            value="",      # 常に空からスタート
         )
 
         send = st.button("送信", type="primary")
